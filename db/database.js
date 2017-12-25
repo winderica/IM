@@ -54,7 +54,9 @@ function find(collectionName, data, func) {
         if (err) throw err;
         var database = db.db('test');
         database.collection(collectionName).find(data).toArray(function (err, result) {
-            if (err) throw err;
+            if (err) {
+                func();
+            }
             db.close();
             func(result);
         });
@@ -65,7 +67,6 @@ function update(collectionName, data, newData) {
     MongoClient.connect(url, function(err, db) {
         if (err) throw err;
         var database = db.db('test');
-        newData = { $set: newData };
         database.collection(collectionName).updateOne(data, newData, function (err) {
             if (err) throw err;
             db.close();
