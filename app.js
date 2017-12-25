@@ -191,18 +191,14 @@ wsApp.ws('/user/friends/request', function (webSocket) {
         msg = JSON.parse(msg);
         if (msg.type === 'history') {
             var requests = [];
-            find('user_relationship', {$or: [{username_a: uid}, {username_b: uid}]}, function (s) {
+            find('user_relationship', {username_b: uid}, function (s) {
                 for (var i = 0; i < s.length; i++) {
-                    if (s[i].status) {
-                        if (s[i].username_a === uid) {
-                            requests.push({username: s[i].username_b});
-                        } else {
-                            requests.push({username: s[i].username_a});
-                        }
+                    if (!s[i].hasOwnProperty('status')) {
+                        requests.push({id:s[i].id, username: s[i].username_a});
                         console.log(requests);
                     }
                 }
-                webSocket.send(JSON.stringify(requests));
+                webSocket.send(JSON.stringify({type: 'history', requests: requests}));
             });
         } else if (msg.type === 'send_request') {
             console.log(msg);
@@ -214,7 +210,7 @@ wsApp.ws('/user/friends/request', function (webSocket) {
                     console.log("inserted " + JSON.stringify({id: id, username_a: uid, username_b: msg.username}));
                     if (to) {
                         console.log('sent to ' + msg.username + ': ' + JSON.stringify(msg));
-                        webSocket.send(JSON.stringify({info: 'received'}));
+                        webSocket.send(JSON.stringify({type:'send_request', info: 'received'}));
                         find("user", {username: uid}, function (t) {
                             t = t[0];
                             if (t.avatar) {
@@ -233,13 +229,13 @@ wsApp.ws('/user/friends/request', function (webSocket) {
                         });
                     }
                 } else {
-                    webSocket.send(JSON.stringify({name: 'username', error: 'username doesn\'t exist'}));
+                    webSocket.send(JSON.stringify({type:'send_request', name: 'username', error: 'username doesn\'t exist'}));
                 }
             })
         } else if (msg.type === 'reject_request') {
             if (msg.id) {
                 update("user_relationship", {id: msg.id}, {$set: {status: false}});
-                webSocket.send(JSON.stringify({info: 'rejected'}));
+                webSocket.send(JSON.stringify({type:'reject_request', info: 'rejected'}));
             }
             if (msg.username) {
                 find("user_relationship", {username_a: msg.username, username_b: uid}, function (t) {
@@ -255,12 +251,12 @@ wsApp.ws('/user/friends/request', function (webSocket) {
                         }, {$set: {status: false}});
                     }
                 });
-                webSocket.send(JSON.stringify({info: 'deleted'}));
+                webSocket.send(JSON.stringify({type:'reject_request', info: 'deleted'}));
             }
         } else if (msg.type === 'agree_request') {
             if (msg.id) {
                 update("user_relationship", {id: msg.id}, {$set: {status: true}});
-                webSocket.send(JSON.stringify({info: 'accepted'}));
+                webSocket.send(JSON.stringify({type:'agree_request', info: 'accepted'}));
             }
         } else {
             webSocket.send(JSON.stringify({info: 'type error'}));
@@ -301,15 +297,15 @@ wsApp.ws('/message', function (webSocket) {
             var messages = [];
             find('message', {to: uid}, function (s) {
                 for (var i = 0; i < s.length; i++) {
-                    if (s[i].create_time > start && s[i].create_time < end) {
-                        messages.push(s[i]);
+                    if (s[i].create_time >= start && s[i].create_time <= end) {
+                        messages.push({create_time: s[i].create_time, from: s[i].from, to: s[i].to, content: s[i].content});
                     }
                 }
+                webSocket.send(JSON.stringify({type:'history', messages: messages}));
             });
-            webSocket.send(JSON.stringify(messages));
         } else if (msg.type === 'send_message') {
             var to = webSockets[msg.to];
-            webSocket.send(JSON.stringify({info: 'received'}));
+            webSocket.send(JSON.stringify({type:'send_message', info: 'received'}));
             insert("message", {create_time: msg.create_time, from: uid, to: msg.to, content: msg.content});
             if (to) {
                 console.log('sent to ' + msg.to + ': ' + JSON.stringify(msg));
@@ -322,7 +318,7 @@ wsApp.ws('/message', function (webSocket) {
                 }));
             }
         } else {
-            webSocket.send(JSON.stringify({error: 'type error'}));
+            webSocket.send(JSON.stringify({type:'send_message', error: 'type error'}));
         }
     });
     webSocket.on('close', function () {
