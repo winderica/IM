@@ -295,7 +295,7 @@ wsApp.ws('/message', function (webSocket) {
             var start = msg.start_time;
             var end = msg.end_time;
             var messages = [];
-            find('message', {to: uid}, function (s) {
+            find('message', {$or: [{from: uid}, {to: uid}]}, function (s) {
                 for (var i = 0; i < s.length; i++) {
                     if (s[i].create_time >= start && s[i].create_time <= end) {
                         messages.push({create_time: s[i].create_time, from: s[i].from, to: s[i].to, content: s[i].content});
