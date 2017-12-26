@@ -1,8 +1,10 @@
 var crypto = require('crypto');
 var base64Img = require('base64-img');
 var app = require('express')();
-var expressWs = require('express-ws')(app);
-var wsApp = expressWs.app;
+var expressWs1 = require('express-ws')(app);
+var expressWs2 = require('express-ws')(app);
+var friendWs = expressWs1.app;
+var messageWs = expressWs2.app;
 var webSockets = {};
 var webSocketsMessage = {};
 var bodyParser = require('body-parser');
@@ -149,7 +151,6 @@ app.get('/user/friends', function (req, res) {
     var decoded = jwt.decode(req.headers.authorization, "secret");
     console.log(decoded);
     var username = decoded.username;
-
     var friends = [];
     find('user_relationship', {$or: [{username_a: username}, {username_b: username}]}, function (s) {
         for (var i = 0; i < s.length; i++) {
@@ -166,19 +167,19 @@ app.get('/user/friends', function (req, res) {
     });
 });
 
-wsApp.use('/user/friends/request', function (req, res, next) {
+friendWs.use('/user/friends/request', function (req, res, next) {
     console.log('connected to /user/friends/request');
     next();
 });
 var jwtFriend;
-wsApp.post('/user/friends/request', function (req, res, next) {
+friendWs.post('/user/friends/request', function (req, res, next) {
     console.log('get post');
     jwtFriend = req.body.jwt;
     console.log(jwtFriend);
     res.type('application/json').send(JSON.stringify({info: 'received'}));
     next();
 });
-wsApp.ws('/user/friends/request', function (webSocket) {
+friendWs.ws('/user/friends/request', function (webSocket) {
     console.log(jwtFriend);
     console.log('websocket connected');
     var decoded = jwt.decode(jwtFriend, "secret");
@@ -190,8 +191,8 @@ wsApp.ws('/user/friends/request', function (webSocket) {
         console.log('received from ' + uid + ': ' + msg);
         msg = JSON.parse(msg);
         if (msg.type === 'history') {
-            var requests = [];
             find('user_relationship', {username_b: uid}, function (s) {
+                var requests = [];
                 for (var i = 0; i < s.length; i++) {
                     if (!s[i].hasOwnProperty('status')) {
                         requests.push({id:s[i].id, username: s[i].username_a});
@@ -268,12 +269,12 @@ wsApp.ws('/user/friends/request', function (webSocket) {
     })
 });
 
-wsApp.use('/message', function (req, res, next) {
+messageWs.use('/message', function (req, res, next) {
     console.log('connected to /message');
     next();
 });
 var jwtMessage;
-wsApp.post('/message', function (req, res, next) {
+messageWs.post('/message', function (req, res, next) {
     console.log('get post');
     jwtMessage = req.body.jwt;
     console.log(jwtMessage);
@@ -281,7 +282,7 @@ wsApp.post('/message', function (req, res, next) {
     next();
 });
 
-wsApp.ws('/message', function (webSocket) {
+messageWs.ws('/message', function (webSocket) {
     console.log('websocket connected');
     var decoded = jwt.decode(jwtMessage, "secret");
     console.log(decoded);
@@ -294,17 +295,21 @@ wsApp.ws('/message', function (webSocket) {
         if (msg.type === 'history') {
             var start = msg.start_time;
             var end = msg.end_time;
-            var messages = [];
             find('message', {$or: [{from: uid}, {to: uid}]}, function (s) {
+                var messages = [];
                 for (var i = 0; i < s.length; i++) {
-                    if (s[i].create_time >= start && s[i].create_time <= end) {
+                    console.log('create time', s[i].create_time);
+                    console.log('start time', start);
+                    console.log('end time', end);
+                    if (s[i].create_time > start && s[i].create_time <= end) {
                         messages.push({create_time: s[i].create_time, from: s[i].from, to: s[i].to, content: s[i].content});
                     }
                 }
+                console.log(messages);
                 webSocket.send(JSON.stringify({type:'history', messages: messages}));
             });
         } else if (msg.type === 'send_message') {
-            var to = webSockets[msg.to];
+            var to = webSocketsMessage[msg.to];
             webSocket.send(JSON.stringify({type:'send_message', info: 'received'}));
             insert("message", {create_time: msg.create_time, from: uid, to: msg.to, content: msg.content});
             if (to) {
