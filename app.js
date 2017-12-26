@@ -21,14 +21,6 @@ app.use(function (req, res, next) {
     next();
 });
 
-
-app.post('/image', function (req, res) {
-    console.log('connected to /image');
-    var img = req.image;
-    var t = Date.now();
-    base64Img.img(img, 'image', t);
-    res.type('application/json').send(JSON.stringify({id: t}));
-});
 app.post('/user/login', function (req, res) {
     console.log('connected to /user/login');
     var msg = req.body;
@@ -163,6 +155,19 @@ app.get('/user/friends', function (req, res) {
                 console.log(friends);
             }
         }
+        function passArray(item) {
+            return function (t) {
+                if (t.hasOwnProperty('avatar')) {
+                    base64Img.base64(t.avatar, function (err, data) {
+                        if (err) throw err;
+                        item.avatar = data;
+                    });
+                }
+            }
+        }
+        for (i = 0; i < friends.length; i++) {
+            find("user", {username: friends[i].username}, passArray(friends[i]));
+        }
         res.type('application/json').send(JSON.stringify(friends));
     });
 });
@@ -199,6 +204,19 @@ friendWs.ws('/user/friends/request', function (webSocket) {
                         console.log(requests);
                     }
                 }
+                function passArray(item) {
+                    return function (t) {
+                        if (t.hasOwnProperty('avatar')) {
+                            base64Img.base64(t.avatar, function (err, data) {
+                                if (err) throw err;
+                                item.avatar = data;
+                            });
+                        }
+                    }
+                }
+                for (i = 0; i < requests.length; i++) {
+                    find("user", {username: requests[i].username}, passArray(requests[i]));
+                }
                 webSocket.send(JSON.stringify({type: 'history', requests: requests}));
             });
         } else if (msg.type === 'send_request') {
@@ -214,7 +232,7 @@ friendWs.ws('/user/friends/request', function (webSocket) {
                         webSocket.send(JSON.stringify({type:'send_request', info: 'received'}));
                         find("user", {username: uid}, function (t) {
                             t = t[0];
-                            if (t.avatar) {
+                            if (t.hasOwnProperty('avatar')) {
                                 base64Img.base64(t.avatar, function (err, data) {
                                     if (err) throw err;
                                     to.send(JSON.stringify({
@@ -281,7 +299,6 @@ messageWs.post('/message', function (req, res, next) {
     res.type('application/json').send(JSON.stringify({info: 'received'}));
     next();
 });
-
 messageWs.ws('/message', function (webSocket) {
     console.log('websocket connected');
     var decoded = jwt.decode(jwtMessage, "secret");
@@ -299,10 +316,18 @@ messageWs.ws('/message', function (webSocket) {
                 var messages = [];
                 for (var i = 0; i < s.length; i++) {
                     console.log('create time', s[i].create_time);
-                    console.log('start time', start);
-                    console.log('end time', end);
                     if (s[i].create_time > start && s[i].create_time <= end) {
-                        messages.push({create_time: s[i].create_time, from: s[i].from, to: s[i].to, content: s[i].content});
+                        if (s[i].isImage) {
+                            function passArray(item) {
+                                return function (err, data) {
+                                    if (err) throw err;
+                                    messages.push({create_time: item.create_time, from: item.from, to: item.to, image: data});
+                                }
+                            }
+                            base64Img.base64(s[i].content, passArray(s[i]));
+                        } else {
+                            messages.push({create_time: s[i].create_time, from: s[i].from, to: s[i].to, content: s[i].content});
+                        }
                     }
                 }
                 console.log(messages);
@@ -311,16 +336,33 @@ messageWs.ws('/message', function (webSocket) {
         } else if (msg.type === 'send_message') {
             var to = webSocketsMessage[msg.to];
             webSocket.send(JSON.stringify({type:'send_message', info: 'received'}));
-            insert("message", {create_time: msg.create_time, from: uid, to: msg.to, content: msg.content});
+            if (msg.hasOwnProperty('image')) {
+                base64Img.img(msg.image, 'image', Date.now(), function (err, path) {
+                    if (err) throw err;
+                    insert("message", {create_time: msg.create_time, from: uid, to: msg.to, content: path, isImage: true});
+                });
+            } else if (msg.hasOwnProperty('content')) {
+                insert("message", {create_time: msg.create_time, from: uid, to: msg.to, content: msg.content, isImage: false});
+            }
             if (to) {
                 console.log('sent to ' + msg.to + ': ' + JSON.stringify(msg));
-                to.send(JSON.stringify({
-                    type: 'receive_message',
-                    create_time: msg.create_time,
-                    from: uid,
-                    to: msg.to,
-                    content: msg.content
-                }));
+                if (msg.hasOwnProperty('image')) {
+                    to.send(JSON.stringify({
+                        type: 'receive_message',
+                        create_time: msg.create_time,
+                        from: uid,
+                        to: msg.to,
+                        image: msg.image
+                    }));
+                } else if (msg.hasOwnProperty('content')) {
+                    to.send(JSON.stringify({
+                        type: 'receive_message',
+                        create_time: msg.create_time,
+                        from: uid,
+                        to: msg.to,
+                        content: msg.content
+                    }));
+                }
             }
         } else {
             webSocket.send(JSON.stringify({type:'send_message', error: 'type error'}));
