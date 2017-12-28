@@ -160,18 +160,22 @@ app.get('/user/friends', (req, res) => {
                 console.log(friends);
             }
         }
-        for (let i = 0; i < friends.length; i++) {
-            find("user", {username: friends[i].username}, t => {
-                if (t.hasOwnProperty('avatar')) {
-                    base64Img.base64(t.avatar, (err, data) => {
-                        if (err) throw err;
-                        friends[i].avatar = data;
-                        res.type('application/json').send(JSON.stringify(friends));
-                    });
-                }
-            });
-        }
-        res.type('application/json').send(JSON.stringify(friends));
+        const addImage = (obj) => {
+            return new Promise(resolve => {
+                find("user", {username: obj.username}, t => {
+                    if (t.hasOwnProperty('avatar')) {
+                        obj.avatar = base64Img.base64Sync(t.avatar);
+                    }
+                    resolve();
+                });
+            })
+        };
+        const promises = friends.map(x => {
+            return addImage(x);
+        });
+        Promise.all(promises).then(() => {
+            res.type('application/json').send(JSON.stringify(friends));
+        });
     });
 });
 
@@ -208,12 +212,9 @@ friendWs.ws('/user/friends/request', (webSocket) => {
                     return new Promise(resolve => {
                         find("user", {username: obj.username}, t => {
                             if (t.hasOwnProperty('avatar')) {
-                                base64Img.base64(t.avatar, (err, data) => {
-                                    if (err) throw err;
-                                    obj.avatar = data;
-                                    resolve();
-                                });
+                                obj.avatar = base64Img.base64Sync(t.avatar);
                             }
+                            resolve();
                         });
                     })
                 };
@@ -345,7 +346,6 @@ messageWs.ws('/message', webSocket => {
                     return addImage(x);
                 });
                 Promise.all(promises).then(() => {
-                    console.log(messages);
                     console.log('send message');
                     webSocket.send(JSON.stringify({type: 'history', messages: messages}));
                 });
