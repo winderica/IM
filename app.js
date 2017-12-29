@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const base64Img = require('base64-img');
-const app = require('express')();
+const express = require('express');
+const app = express();
 const expressWs1 = require('express-ws')(app);
 const expressWs2 = require('express-ws')(app);
 const friendWs = expressWs1.app;
@@ -18,6 +19,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extend: false }));
 app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "*");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
     next();
 });
@@ -123,7 +125,7 @@ app.patch('/user', (req, res) => {
                     }));
                 } else if (oldHash === s[0].password_hash) {
                     console.log('update info');
-                    update('user', req.params, {$set: {password_hash: newHash}});
+                    update('user', {username: s[0].username}, {$set: {password_hash: newHash}});
                     res.status(200).type('application/json').send(JSON.stringify({
                         username: username,
                         password: newPassword
@@ -186,11 +188,11 @@ friendWs.use('/user/friends/request', (req, res, next) => {
 let jwtFriend;
 friendWs.post('/user/friends/request', (req, res, next) => {
     console.log('get post');
-    console.log('received jwt');
+    jwtFriend = req.body.jwt;
     res.type('application/json').send(JSON.stringify({info: 'received'}));
     next();
 });
-friendWs.ws('/user/friends/request', (webSocket) => {
+friendWs.ws('/user/friends/request', webSocket => {
     console.log('websocket connected');
     const decoded = jwt.decode(jwtFriend, "secret");
     console.log(decoded);
