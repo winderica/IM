@@ -1,3 +1,6 @@
+/**
+ * import modules
+ */
 const crypto = require('crypto');
 const base64Img = require('base64-img');
 const express = require('express');
@@ -15,6 +18,9 @@ const update = require('./db/database').updateData;
 let webSockets = {};
 let webSocketsMessage = {};
 
+/**
+ * middle wares
+ */
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extend: false }));
 app.use((req, res, next) => {
@@ -24,33 +30,31 @@ app.use((req, res, next) => {
     next();
 });
 
+/************* HTTP part *************/
+
+/**
+ * handler of login
+ */
 app.post('/user/login', (req, res) => {
     console.log('connected to /user/login');
-    const msg = req.body;
-    console.log(req.body);
-    let username = msg.username,
-        password = msg.password;
-    password = crypto.createHash('md5').update(password).digest('hex');
-    const obj = {
-        username: username
-    };
-    find('user', obj, t => {
+    const msg = req.body,
+        username = msg.username,
+        password = msg.password,
+        password_hash = crypto.createHash('md5').update(password).digest('hex');
+    find('user', { username: username }, t => {
         if (!t[0]) {
-            console.log('username is not correct');
             res.status(400).type('application/json').send(JSON.stringify({
                 name: 'username',
                 error: 'username is not correct'
             }));
-        } else if (t[0].password_hash === password) {
-            console.log('login: ', {username: username, password_hash: password});
+        } else if (t[0].password_hash === password_hash) {
             res.status(200).type('application/json').send(JSON.stringify({
                 jwt: jwt.encode({
                     username: username,
-                    password_hash: password
+                    password_hash: password_hash
                 }, 'secret')
             }));
         } else {
-            console.log('password is not correct');
             res.status(400).type('application/json').send(JSON.stringify({
                 name: 'password',
                 error: 'password is not correct'
@@ -58,42 +62,43 @@ app.post('/user/login', (req, res) => {
         }
     });
 });
+
+/**
+ * handler of register
+ */
 app.post('/user/register', (req, res) => {
     console.log('connected to /user/register');
-    const msg = req.body;
-    const username = msg.username,
+    const msg = req.body,
+        username = msg.username,
         password = msg.password;
-    const obj = {
-        username: username,
-        password_hash: crypto.createHash('md5').update(password).digest('hex')
-    };
-    find('user', {username: username}, t => {
+    find('user', { username: username }, t => {
         if (t[0]) {
-            console.log('this username has already been registered');
             res.status(400).type('application/json').send(JSON.stringify({
                 name: 'username',
                 error: 'this username has already been registered'
             }));
         } else {
-            console.log('register: ', obj);
+            const obj = {
+                username: username,
+                password_hash: crypto.createHash('md5').update(password).digest('hex')
+            };
             insert('user', obj);
-            res.status(201).type('application/json').send(JSON.stringify({jwt: jwt.encode(obj, 'secret')}));
+            res.status(201).type('application/json').send(JSON.stringify({ jwt: jwt.encode(obj, 'secret') }));
         }
     });
 });
-app.get('/user', (req, res) => {
-    const decoded = jwt.decode(req.headers.authorization, "secret");
-    console.log('received jwt');
 
-    console.log('connected to /user/:username');
-    find('user', {username: decoded.username}, s => {
+/**
+ * handler of getting user info
+ */
+app.get('/user', (req, res) => {
+    console.log('connected to /user');
+    const decoded = jwt.decode(req.headers.authorization, "secret");
+    find('user', { username: decoded.username }, s => {
         if (s[0].password_hash === decoded.password_hash) {
-            console.log('find user: ', s[0].username);
             if (s[0].hasOwnProperty('avatar')) {
-                base64Img.base64(s[0].avatar, (err, data) => {
-                    if (err) throw err;
-                    res.status(200).type('application/json').send(JSON.stringify({username: s[0].username, password_hash: s[0].password_hash, avatar: data}));
-                });
+                const data = base64Img.base64Sync(s[0].avatar);
+                res.status(200).type('application/json').send(JSON.stringify({username: s[0].username, password_hash: s[0].password_hash, avatar: data}));
             } else {
                 res.status(200).type('application/json').send(JSON.stringify({username: s[0].username, password_hash: s[0].password_hash}));
             }
@@ -102,12 +107,14 @@ app.get('/user', (req, res) => {
         }
     });
 });
-app.patch('/user', (req, res) => {
-    const decoded = jwt.decode(req.headers.authorization, "secret");
-    console.log('received jwt');
 
-    console.log('patch to /user/:username');
-    find('user', {username: decoded.username}, s => {
+/**
+ * handler of updating user info
+ */
+app.patch('/user', (req, res) => {
+    console.log('patch to /user');
+    const decoded = jwt.decode(req.headers.authorization, "secret");
+    find('user', { username: decoded.username }, s => {
         if (s[0].password_hash === decoded.password_hash) {
             const newData = req.body;
             const avatar = newData.avatar,
@@ -118,20 +125,17 @@ app.patch('/user', (req, res) => {
                 const oldHash = crypto.createHash('md5').update(oldPassword).digest('hex'),
                     newHash = crypto.createHash('md5').update(newPassword).digest('hex');
                 if (oldHash === newHash) {
-                    console.log('same password');
                     res.status(400).type('application/json').send(JSON.stringify({
                         name: 'password',
                         error: 'new password should not be same as former'
                     }));
                 } else if (oldHash === s[0].password_hash) {
-                    console.log('update info');
-                    update('user', {username: s[0].username}, {$set: {password_hash: newHash}});
+                    update('user', { username: s[0].username }, { $set: { password_hash: newHash } });
                     res.status(200).type('application/json').send(JSON.stringify({
                         username: username,
                         password: newPassword
                     }));
                 } else {
-                    console.log('old password is not correct');
                     res.status(400).type('application/json').send(JSON.stringify({
                         name: 'self_password',
                         error: 'old password is not correct'
@@ -141,25 +145,31 @@ app.patch('/user', (req, res) => {
             if (avatar) {
                 base64Img.img(avatar, 'image', Date.now(), (err, path) => {
                     if (err) throw err;
-                    update('user', req.params, {$set: {avatar: path}});
-                    res.status(200).type('application/json').send(JSON.stringify({info: 'avatar updated'}))
-                })
+                    update('user', { username: s[0].username }, { $set: { avatar: path } });
+                    res.status(200).type('application/json').send(JSON.stringify({ info: 'avatar updated' }))
+                });
             }
         } else {
-            res.status(400).type('application/json').send(JSON.stringify({name: 'jwt', error: 'jwt isn\'t correct'}))
+            res.status(400).type('application/json').send(JSON.stringify({
+                name: 'jwt',
+                error: 'jwt isn\'t correct'
+            }));
         }
     });
 });
+
+/**
+ * handler of getting friends list
+ */
 app.get('/user/friends', (req, res) => {
+    console.log('connect to /user/friends');
     const decoded = jwt.decode(req.headers.authorization, "secret");
-    console.log('received jwt');
     const username = decoded.username;
     let friends = [];
-    find('user_relationship', {$or: [{username_a: username}, {username_b: username}]}, s => {
+    find('user_relationship', { $or: [{ username_a: username }, { username_b: username }] }, s => {
         for (let i = 0; i < s.length; i++) {
             if (s[i].status) {
-                friends.push({username: s[i].username_a === username? s[i].username_b : s[i].username_b});
-                console.log(friends);
+                friends.push({ username: s[i].username_a === username ? s[i].username_b : s[i].username_a });
             }
         }
         const addImage = (obj) => {
@@ -181,33 +191,36 @@ app.get('/user/friends', (req, res) => {
     });
 });
 
+/************* WebSocket part *************/
+
+/**
+ * handling friend request
+ */
 friendWs.use('/user/friends/request', (req, res, next) => {
     console.log('connected to /user/friends/request');
     next();
 });
 let jwtFriend;
 friendWs.post('/user/friends/request', (req, res, next) => {
-    console.log('get post');
     jwtFriend = req.body.jwt;
     res.type('application/json').send(JSON.stringify({info: 'received'}));
     next();
 });
 friendWs.ws('/user/friends/request', webSocket => {
-    console.log('websocket connected');
     const decoded = jwt.decode(jwtFriend, "secret");
-    console.log(decoded);
     const uid = decoded.username;
     webSockets[uid] = webSocket;
-    console.log('connected :' + uid + ' in ' + Object.getOwnPropertyNames(webSockets));
     webSocket.on('message', msg => {
-        console.log('received from ' + uid + ': ' + msg);
         msg = JSON.parse(msg);
         if (msg.type === 'history') {
-            find('user_relationship', {username_b: uid}, s => {
+            find('user_relationship', { username_b: uid }, s => {
                 let requests = [];
                 for (let i = 0; i < s.length; i++) {
                     if (!s[i].hasOwnProperty('status')) {
-                        requests.push({id:s[i].id, username: s[i].username_a});
+                        requests.push({
+                            id:s[i].id,
+                            username: s[i].username_a
+                        });
                     }
                 }
                 const addImage = (obj) => {
@@ -218,129 +231,147 @@ friendWs.ws('/user/friends/request', webSocket => {
                             }
                             resolve();
                         });
-                    })
+                    });
                 };
                 const promises = requests.map( x => {
                     return addImage(x);
                 });
                 Promise.all(promises).then(() => {
-                    webSocket.send(JSON.stringify({type: 'history', requests: requests}));
-                })
+                    webSocket.send(JSON.stringify({
+                        type: 'history',
+                        requests: requests
+                    }));
+                });
             });
         } else if (msg.type === 'send_request') {
-            console.log(msg);
-            find("user", {username: msg.username}, s => {
+            find("user", { username: msg.username }, s => {
                 if (s) {
                     const to = webSockets[msg.username];
                     const id = Date.now();
-                    insert("user_relationship", {id: id, username_a: uid, username_b: msg.username});
-                    console.log("inserted " + JSON.stringify({id: id, username_a: uid, username_b: msg.username}));
+                    insert("user_relationship", {
+                        id: id,
+                        username_a: uid,
+                        username_b: msg.username
+                    });
                     if (to) {
-                        console.log('sent to ' + msg.username + ': ' + JSON.stringify(msg));
-                        webSocket.send(JSON.stringify({type:'send_request', info: 'received'}));
-                        find("user", {username: uid}, t => {
+                        webSocket.send(JSON.stringify({
+                            type:'send_request',
+                            info: 'received'
+                        }));
+                        find("user", { username: uid }, t => {
                             t = t[0];
                             if (t.hasOwnProperty('avatar')) {
-                                base64Img.base64(t.avatar, (err, data) => {
-                                    if (err) throw err;
-                                    to.send(JSON.stringify({
-                                        id: id,
-                                        type: 'receive_request',
-                                        username: uid,
-                                        avatar: data
-                                    }));
-                                })
+                                const data = base64Img.base64Sync(t.avatar);
+                                to.send(JSON.stringify({
+                                    id: id,
+                                    type: 'receive_request',
+                                    username: uid,
+                                    avatar: data
+                                }));
                             } else {
-                                to.send(JSON.stringify({id: id, type: 'receive_request', username: uid}));
+                                to.send(JSON.stringify({
+                                    id: id,
+                                    type: 'receive_request',
+                                    username: uid
+                                }));
                             }
                         });
                     }
                 } else {
-                    webSocket.send(JSON.stringify({type:'send_request', name: 'username', error: 'username doesn\'t exist'}));
+                    webSocket.send(JSON.stringify({
+                        type:'send_request',
+                        name: 'username',
+                        error: 'username doesn\'t exist'
+                    }));
                 }
             })
         } else if (msg.type === 'reject_request') {
-            if (msg.id) {
-                update("user_relationship", {id: msg.id}, {$set: {status: false}});
-                webSocket.send(JSON.stringify({type:'reject_request', info: 'rejected'}));
+            if (msg.id) { // reject friend request
+                update("user_relationship", { id: msg.id }, { $set: { status: false } });
+                webSocket.send(JSON.stringify({
+                    type:'reject_request',
+                    info: 'rejected'
+                }));
             }
-            if (msg.username) {
+            if (msg.username) { // delete friend
                 find("user_relationship", {username_a: msg.username, username_b: uid}, t => {
                     if (t) {
                         update("user_relationship", {
                             username_a: msg.username,
                             username_b: uid
-                        }, {$set: {status: false}});
+                        }, { $set: { status: false } });
                     } else {
                         update("user_relationship", {
                             username_b: msg.username,
                             username_a: uid
-                        }, {$set: {status: false}});
+                        }, { $set: { status: false } });
                     }
                 });
-                webSocket.send(JSON.stringify({type:'reject_request', info: 'deleted'}));
+                webSocket.send(JSON.stringify({
+                    type:'reject_request',
+                    info: 'deleted'
+                }));
             }
         } else if (msg.type === 'agree_request') {
             if (msg.id) {
-                update("user_relationship", {id: msg.id}, {$set: {status: true}});
-                webSocket.send(JSON.stringify({type:'agree_request', info: 'accepted'}));
+                update("user_relationship", { id: msg.id }, { $set: { status: true } });
+                webSocket.send(JSON.stringify({
+                    type:'agree_request',
+                    info: 'accepted'
+                }));
             }
         } else {
-            webSocket.send(JSON.stringify({info: 'type error'}));
+            webSocket.send(JSON.stringify({ info: 'type error' }));
         }
     });
     webSocket.on('close', () => {
         delete webSockets[uid];
-        console.log('deleted: ' + uid);
     })
 });
 
+/**
+ * handling message
+ */
 messageWs.use('/message', (req, res, next) => {
     console.log('connected to /message');
     next();
 });
 let jwtMessage;
 messageWs.post('/message', (req, res, next) => {
-    console.log('get post');
     jwtMessage = req.body.jwt;
     res.type('application/json').send(JSON.stringify({info: 'received'}));
     next();
 });
 messageWs.ws('/message', webSocket => {
-    console.log('websocket connected');
     const decoded = jwt.decode(jwtMessage, "secret");
-    console.log(decoded);
     const uid = decoded.username;
     webSocketsMessage[uid] = webSocket;
-    console.log('connected :' + uid + ' in ' + Object.getOwnPropertyNames(webSocketsMessage));
     webSocket.on('message', msg => {
-        console.log('received from ' + uid + ': ' + msg);
         msg = JSON.parse(msg);
         if (msg.type === 'history') {
             const start = msg.start_time;
             const end = msg.end_time;
-            find('message', {$or: [{from: uid}, {to: uid}]}, s => {
+            find('message', { $or: [{ from: uid }, { to: uid }] }, s => {
                 let messages = [];
                 for (let i = 0; i < s.length; i++) {
                     if (s[i].create_time > start && s[i].create_time <= end) {
-                        messages.push({create_time: s[i].create_time, from: s[i].from, to: s[i].to});
+                        messages.push({
+                            create_time: s[i].create_time,
+                            from: s[i].from,
+                            to: s[i].to
+                        });
                     }
                 }
                 const addImage = obj => {
                     return new Promise(resolve => {
-                        console.log([obj]);
-                        find('message', {create_time: obj.create_time}, t => {
+                        find('message', { create_time: obj.create_time }, t => {
                             t = t[0];
-                            console.log('find: ', t);
                             if (t.isImage) {
-                                console.log('path: ', t.content);
                                 obj.image = base64Img.base64Sync(t.content);
-                                resolve();
                             } else {
-                                console.log('content: ', t.content);
                                 obj.content = t.content;
-                                resolve();
                             }
+                            resolve();
                         });
                     })
                 };
@@ -348,8 +379,10 @@ messageWs.ws('/message', webSocket => {
                     return addImage(x);
                 });
                 Promise.all(promises).then(() => {
-                    console.log('send message');
-                    webSocket.send(JSON.stringify({type: 'history', messages: messages}));
+                    webSocket.send(JSON.stringify({
+                        type: 'history',
+                        messages: messages
+                    }));
                 });
             });
         } else if (msg.type === 'send_message') {
@@ -358,13 +391,24 @@ messageWs.ws('/message', webSocket => {
             if (msg.hasOwnProperty('image')) {
                 base64Img.img(msg.image, 'image', Date.now(), (err, path) => {
                     if (err) throw err;
-                    insert("message", {create_time: msg.create_time, from: uid, to: msg.to, content: path, isImage: true});
+                    insert("message", {
+                        create_time: msg.create_time,
+                        from: uid,
+                        to: msg.to,
+                        content: path,
+                        isImage: true
+                    });
                 });
             } else if (msg.hasOwnProperty('content')) {
-                insert("message", {create_time: msg.create_time, from: uid, to: msg.to, content: msg.content, isImage: false});
+                insert("message", {
+                    create_time: msg.create_time,
+                    from: uid,
+                    to: msg.to,
+                    content: msg.content,
+                    isImage: false
+                });
             }
             if (to) {
-                console.log('sent to ' + msg.to + ': ' + JSON.stringify(msg));
                 if (msg.hasOwnProperty('image')) {
                     to.send(JSON.stringify({
                         type: 'receive_message',
@@ -384,14 +428,15 @@ messageWs.ws('/message', webSocket => {
                 }
             }
         } else {
-            webSocket.send(JSON.stringify({type:'send_message', error: 'type error'}));
+            webSocket.send(JSON.stringify({
+                type:'send_message',
+                error: 'type error'
+            }));
         }
     });
     webSocket.on('close', () => {
         delete webSocketsMessage[uid];
-        console.log('deleted: ' + uid);
-    })
-
+    });
 });
 
 app.listen(7341);
