@@ -74,6 +74,19 @@ function update(collectionName, data, newData) {
     });
 }
 
+function remove(collectionName, data) {
+    MongoClient.connect(url, function(err, db) {
+        if (err) throw err;
+        const database = db.db('test');
+        database.collection(collectionName).deleteOne(data, function (err) {
+            if (err) throw err;
+            db.close();
+        });
+    });
+}
+
+
 exports.insertData = insert;
 exports.findData = find;
 exports.updateData = update;
+exports.removeData = remove;

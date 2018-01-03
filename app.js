@@ -14,6 +14,7 @@ const jwt = require('jwt-simple');
 const insert = require('./db/database').insertData;
 const find = require('./db/database').findData;
 const update = require('./db/database').updateData;
+const remove = require('./db/database').removeData;
 
 let webSockets = {};
 let webSocketsMessage = {};
@@ -175,7 +176,8 @@ app.get('/user/friends', (req, res) => {
         const addImage = (obj) => {
             return new Promise(resolve => {
                 find("user", {username: obj.username}, t => {
-                    if (t.hasOwnProperty('avatar')) {
+                    t = t[0];
+                    if (t.avatar) {
                         obj.avatar = base64Img.base64Sync(t.avatar);
                     }
                     resolve();
@@ -226,7 +228,8 @@ friendWs.ws('/user/friends/request', webSocket => {
                 const addImage = (obj) => {
                     return new Promise(resolve => {
                         find("user", {username: obj.username}, t => {
-                            if (t.hasOwnProperty('avatar')) {
+                            t = t[0];
+                            if (t.avatar) {
                                 obj.avatar = base64Img.base64Sync(t.avatar);
                             }
                             resolve();
@@ -244,50 +247,66 @@ friendWs.ws('/user/friends/request', webSocket => {
                 });
             });
         } else if (msg.type === 'send_request') {
-            find("user", { username: msg.username }, s => {
-                if (s) {
-                    const to = webSockets[msg.username];
-                    const id = Date.now();
-                    insert("user_relationship", {
-                        id: id,
-                        username_a: uid,
-                        username_b: msg.username
-                    });
-                    if (to) {
+            if (msg.username === uid) {
+                webSocket.send(JSON.stringify({
+                    type:'send_request',
+                    error: 'request yourself'
+                }));
+            } else {
+                find("user_relationship", { username_b: msg.username }, r => {
+                    if (r) {
                         webSocket.send(JSON.stringify({
                             type:'send_request',
-                            info: 'received'
+                            error: 'duplicate friend request'
                         }));
-                        find("user", { username: uid }, t => {
-                            t = t[0];
-                            if (t.hasOwnProperty('avatar')) {
-                                const data = base64Img.base64Sync(t.avatar);
-                                to.send(JSON.stringify({
+                    } else {
+                        find("user", { username: msg.username }, s => {
+                            if (s) {
+                                const to = webSockets[msg.username];
+                                const id = Date.now();
+                                insert("user_relationship", {
                                     id: id,
-                                    type: 'receive_request',
-                                    username: uid,
-                                    avatar: data
-                                }));
+                                    username_a: uid,
+                                    username_b: msg.username
+                                });
+                                if (to) {
+                                    webSocket.send(JSON.stringify({
+                                        type:'send_request',
+                                        info: 'received'
+                                    }));
+                                    find("user", { username: uid }, t => {
+                                        t = t[0];
+                                        if (t.avatar) {
+                                            const data = base64Img.base64Sync(t.avatar);
+                                            to.send(JSON.stringify({
+                                                id: id,
+                                                type: 'receive_request',
+                                                username: uid,
+                                                avatar: data
+                                            }));
+                                        } else {
+                                            to.send(JSON.stringify({
+                                                id: id,
+                                                type: 'receive_request',
+                                                username: uid
+                                            }));
+                                        }
+                                    });
+                                }
                             } else {
-                                to.send(JSON.stringify({
-                                    id: id,
-                                    type: 'receive_request',
-                                    username: uid
+                                webSocket.send(JSON.stringify({
+                                    type:'send_request',
+                                    name: 'username',
+                                    error: 'username doesn\'t exist'
                                 }));
                             }
-                        });
+                        })
                     }
-                } else {
-                    webSocket.send(JSON.stringify({
-                        type:'send_request',
-                        name: 'username',
-                        error: 'username doesn\'t exist'
-                    }));
-                }
-            })
+                })
+            }
         } else if (msg.type === 'reject_request') {
             if (msg.id) { // reject friend request
-                update("user_relationship", { id: msg.id }, { $set: { status: false } });
+                remove("user_relationship", { id: msg.id });
                 webSocket.send(JSON.stringify({
                     type:'reject_request',
                     info: 'rejected'
@@ -296,15 +315,15 @@ friendWs.ws('/user/friends/request', webSocket => {
             if (msg.username) { // delete friend
                 find("user_relationship", {username_a: msg.username, username_b: uid}, t => {
                     if (t) {
-                        update("user_relationship", {
+                        remove("user_relationship", {
                             username_a: msg.username,
                             username_b: uid
-                        }, { $set: { status: false } });
+                        });
                     } else {
-                        update("user_relationship", {
+                        remove("user_relationship", {
                             username_b: msg.username,
                             username_a: uid
-                        }, { $set: { status: false } });
+                        });
                     }
                 });
                 webSocket.send(JSON.stringify({
