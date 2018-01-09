@@ -22,8 +22,8 @@ let webSocketsMessage = {};
 /**
  * middle wares
  */
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extend: false }));
+app.use(bodyParser.json({limit: "50mb"}));
+app.use(bodyParser.urlencoded({limit: "50mb", extended: true, parameterLimit:50000}));
 app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "*");
@@ -144,11 +144,9 @@ app.patch('/user', (req, res) => {
                 }
             }
             if (avatar) {
-                base64Img.img(avatar, 'image', Date.now(), (err, path) => {
-                    if (err) throw err;
-                    update('user', { username: s[0].username }, { $set: { avatar: path } });
-                    res.status(200).type('application/json').send(JSON.stringify({ info: 'avatar updated' }))
-                });
+                let path = base64Img.imgSync(avatar, 'image', Date.now());
+                update('user', { username: s[0].username }, { $set: { avatar: path } });
+                res.status(200).type('application/json').send(JSON.stringify({ info: 'avatar updated' }));
             }
         } else {
             res.status(400).type('application/json').send(JSON.stringify({
